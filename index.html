@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Laptop Asset Tracker</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    /* 🌐 BASE */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background: #f3f6fb;
+      color: #1a1a1a;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #0b1f4b, #142b6f);
+      color: white;
+      padding: 18px 25px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+
+    .header h2 { margin: 0; font-size: 20px; }
+
+    .badge {
+      background: gold;
+      color: #0b1f4b;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 12px;
+    }
+
+    .container { padding: 20px; }
+
+    .card {
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+    }
+
+    input {
+      margin: 5px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+
+    button {
+      padding: 10px 14px;
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      background: #0b1f4b;
+      color: white;
+    }
+
+    button:hover { background: #142b6f; }
+
+    .gold-btn {
+      background: gold;
+      color: #0b1f4b;
+      font-weight: bold;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    th {
+      background: #0b1f4b;
+      color: white;
+      padding: 12px;
+    }
+
+    td {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="header">
+  <h2>Laptop Asset Management System</h2>
+  <div class="badge">LAC</div>
+</div>
+
+<div class="container">
+
+  <div class="card">
+    <h3>Assign Laptop</h3>
+
+    <div style="display:flex; flex-wrap:wrap; gap:10px;">
+      <input id="assetTag" placeholder="Asset Tag">
+      <input id="model" placeholder="Model">
+      <input id="employee" placeholder="Employee">
+      <input id="department" placeholder="Department">
+
+      <button onclick="addAsset()">Assign</button>
+      <button onclick="exportExcel()" class="gold-btn">Export to Excel</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Assets</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Asset Tag</th>
+          <th>Model</th>
+          <th>Employee</th>
+          <th>Department</th>
+          <th>Status</th>
+          <th>Action</th>
+          <th>History</th>
+        </tr>
+      </thead>
+      <tbody id="assetTable"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore,
+  collection,
+  onSnapshot,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp,
+  getDocs,
+  query,
+  where,
+  arrayUnion,
+  getDoc
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAn-SB36NCmK-WXAh-MuR2NvzYanJarFg0",
+  authDomain: "laptop-asset-system.firebaseapp.com",
+  projectId: "laptop-asset-system",
+  storageBucket: "laptop-asset-system.firebasestorage.app",
+  messagingSenderId: "878130631508",
+  appId: "1:878130631508:web:d45689d913255eb3df2ec1"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const assetsRef = collection(db, "assets");
+
+function formatTime(date) {
+  return new Date(date).toLocaleString();
+}
+
+/* ➕ ADD */
+window.addAsset = async function () {
+  const assetTag = assetTagInput.value;
+  const model = modelInput.value;
+  const employee = employeeInput.value;
+  const department = departmentInput.value;
+
+  if (!assetTag || !employee) return alert("Required");
+
+  const check = await getDocs(query(assetsRef, where("assetTag", "==", assetTag)));
+  if (!check.empty) return alert("Exists");
+
+  await setDoc(doc(db, "assets", assetTag), {
+    assetTag,
+    model,
+    employee,
+    department,
+    status: "Assigned",
+    createdAt: serverTimestamp(),
+    history: [{
+      employee,
+      action: "Assigned",
+      date: formatTime(new Date())
+    }]
+  });
+};
+
+/* 🔄 TABLE */
+onSnapshot(assetsRef, (snapshot) => {
+  let rows = "";
+
+  snapshot.forEach(docSnap => {
+    const a = docSnap.data();
+
+    rows += `
+      <tr>
+        <td>${a.assetTag}</td>
+        <td>${a.model}</td>
+        <td>${a.employee}</td>
+        <td>${a.department}</td>
+        <td>${a.status}</td>
+        <td>
+          <select onchange="handleAction(this.value,'${docSnap.id}','${a.assetTag}','${a.model}','${a.employee}','${a.department}','${a.status}')">
+            <option value="">Action</option>
+            <option value="edit">Edit</option>
+            <option value="return">Return</option>
+            <option value="reassign">Reassign</option>
+            <option value="delete">Delete</option>
+          </select>
+        </td>
+        <td>
+          <button onclick="showHistory('${docSnap.id}')">View</button>
+        </td>
+      </tr>
+    `;
+  });
+
+  assetTable.innerHTML = rows;
+});
+
+/* ⚙️ ACTIONS */
+window.handleAction = async function (action, id, assetTag, model, employee, department, status) {
+
+  const ref = doc(db, "assets", id);
+
+  if (action === "return") {
+    await updateDoc(ref, {
+      status: "Returned",
+      employee: "Return to ITG - Computer Operation",
+      history: arrayUnion({
+        employee,
+        action: "Returned",
+        date: formatTime(new Date())
+      })
+    });
+  }
+
+  if (action === "delete") {
+    if (confirm("Delete?")) await deleteDoc(ref);
+  }
+
+  if (action === "reassign") {
+
+    if (status !== "Returned") {
+      return alert("Only returned assets!");
+    }
+
+    const newEmployee = prompt("New Employee:");
+    const newDepartment = prompt("New Department:");
+
+    if (!newEmployee) return;
+
+    const check = await getDocs(
+      query(assetsRef,
+        where("employee", "==", newEmployee),
+        where("status", "==", "Assigned")
+      )
+    );
+
+    if (!check.empty) return alert("Already assigned");
+
+    await updateDoc(ref, {
+      employee: newEmployee,
+      department: newDepartment || "",
+      status: "Assigned",
+      history: arrayUnion({
+        employee: newEmployee,
+        action: "Reassigned",
+        date: formatTime(new Date())
+      })
+    });
+
+    alert("Reassigned!");
+  }
+};
+
+/* 📜 HISTORY */
+window.showHistory = async function (id) {
+  const snap = await getDoc(doc(db,"assets",id));
+  const data = snap.data();
+
+  alert(
+    data.history.map((h,i)=>
+      `${i+1}. ${h.employee} - ${h.action} - ${h.date}`
+    ).join("\n")
+  );
+};
+
+/* 📤 EXPORT */
+window.exportExcel = async function () {
+  const snapshot = await getDocs(assetsRef);
+
+  const data = [];
+
+  snapshot.forEach(d => data.push(d.data()));
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(data);
+
+  XLSX.utils.book_append_sheet(wb, ws, "Assets");
+  XLSX.writeFile(wb, "assets.xlsx");
+};
+
+</script>
+
+</body>
+</html>
